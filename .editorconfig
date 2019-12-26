@@ -1,0 +1,7 @@
+; http://editorconfig.org/
+
+root = true
+
+[{Makefile,go.mod,go.sum,*.go}]
+indent_style = tab
+indent_size = 4
