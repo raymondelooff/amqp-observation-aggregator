@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/avast/retry-go"
 	"github.com/streadway/amqp"
 )
 
@@ -137,17 +138,26 @@ func (s *Subscriber) Subscribe() (chan amqp.Delivery, error) {
 		return nil, err
 	}
 
-	err = s.getChannel()
-	if err != nil {
-		return nil, err
-	}
+	err = retry.Do(
+		func() error {
+			err = s.getChannel()
+			if err != nil {
+				return err
+			}
 
-	s.queue, err = s.declareQueue()
-	if err != nil {
-		return nil, err
-	}
+			s.queue, err = s.declareQueue()
+			if err != nil {
+				return err
+			}
 
-	err = s.bindQueue()
+			err = s.bindQueue()
+			if err != nil {
+				return err
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
