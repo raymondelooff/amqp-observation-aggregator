@@ -119,7 +119,7 @@ func (s *Subscriber) bindQueue() error {
 func (s *Subscriber) deleteQueue() error {
 	name := s.queue.Name
 
-	_, err := s.channel.QueueDelete(name, true, true, true)
+	_, err := s.channel.QueueDelete(name, true, false, false)
 
 	if err != nil {
 		log.Printf("Subscriber: %s", err)
