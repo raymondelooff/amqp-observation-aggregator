@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 )
 
@@ -88,6 +87,34 @@ func (s *Subscriber) declareQueue() (*amqp.Queue, error) {
 	return &queue, nil
 }
 
+// Bind the Queue to the configured topics
+func (s *Subscriber) bindQueue() error {
+	var err error
+
+	if s.queue == nil {
+		return fmt.Errorf("Subscriber: Queue not declared")
+	}
+
+	for _, topic := range s.topics {
+		log.Printf("Subscriber: binding topic to Exchange (key: %q)", topic)
+
+		err = s.channel.QueueBind(
+			s.queue.Name,      // name
+			topic,             // key
+			s.config.Exchange, // exchange
+			false,             // noWait
+			nil,               // arguments
+		)
+		if err != nil {
+			log.Printf("Subscriber: %s", err)
+
+			return fmt.Errorf("Subscriber: failed to bind Queue")
+		}
+	}
+
+	return nil
+}
+
 // Delete the declared Queue if there a no more consumers
 func (s *Subscriber) deleteQueue() error {
 	name := s.queue.Name
@@ -99,8 +126,6 @@ func (s *Subscriber) deleteQueue() error {
 
 		return fmt.Errorf("Subscriber: failed to delete Queue")
 	}
-
-	fmt.Println("Subscriber: deleted Queue")
 
 	return nil
 }
@@ -122,7 +147,10 @@ func (s *Subscriber) Subscribe() (chan amqp.Delivery, error) {
 		return nil, err
 	}
 
-	log.Println(s.queue.Name)
+	err = s.bindQueue()
+	if err != nil {
+		return nil, err
+	}
 
 	return nil, nil
 }
@@ -146,7 +174,7 @@ func (s *Subscriber) Shutdown() error {
 		return fmt.Errorf("AMQP connection close error: %s", err)
 	}
 
-	defer log.Printf("Subscriber: shutdown OK")
+	log.Printf("Subscriber: shutdown OK")
 
 	return nil
 }
@@ -156,7 +184,7 @@ func NewSubscriber(config AMQPConfig, topics []string) *Subscriber {
 	return &Subscriber{
 		config:     config,
 		topics:     topics,
-		tag:        uuid.New().String(),
+		tag:        config.Tag,
 		connection: nil,
 		channel:    nil,
 		deliveries: make(chan amqp.Delivery),
