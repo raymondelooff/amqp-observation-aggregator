@@ -34,6 +34,7 @@ func (a *Aggregator) Run(wg *sync.WaitGroup) {
 		for delivery := range deliveries {
 			wg.Add(1)
 			log.Println(delivery)
+			wg.Done()
 		}
 	}()
 
