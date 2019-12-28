@@ -24,7 +24,6 @@ type Subscriber struct {
 	connection *amqp.Connection
 	channel    *amqp.Channel
 	queue      *amqp.Queue
-	deliveries chan amqp.Delivery
 }
 
 // Connect with the configured AMQP broker
@@ -118,9 +117,7 @@ func (s *Subscriber) bindQueue() error {
 
 // Delete the declared Queue if there a no more consumers
 func (s *Subscriber) deleteQueue() error {
-	name := s.queue.Name
-
-	_, err := s.channel.QueueDelete(name, true, false, false)
+	_, err := s.channel.QueueDelete(s.queue.Name, true, false, false)
 
 	if err != nil {
 		log.Printf("Subscriber: %s", err)
@@ -131,8 +128,23 @@ func (s *Subscriber) deleteQueue() error {
 	return nil
 }
 
+// Cancels the current consumer
+func (s *Subscriber) cancelConsumer() error {
+	err := s.channel.Cancel(s.tag, false)
+
+	if err != nil {
+		log.Printf("Subscriber: %s", err)
+
+		return fmt.Errorf("Subscriber: failed to cancel consumer")
+	}
+
+	return nil
+}
+
 // Subscribe to the topics defined in the AMQPConfig
-func (s *Subscriber) Subscribe() (chan amqp.Delivery, error) {
+func (s *Subscriber) Subscribe() (<-chan amqp.Delivery, error) {
+	var deliveries <-chan amqp.Delivery
+
 	err := s.dial()
 	if err != nil {
 		return nil, err
@@ -155,6 +167,19 @@ func (s *Subscriber) Subscribe() (chan amqp.Delivery, error) {
 				return err
 			}
 
+			deliveries, err = s.channel.Consume(
+				s.queue.Name, // queue
+				s.tag,        // consumer,
+				false,        // autoAck
+				false,        // exclusive
+				false,        // noLocal
+				false,        // noWait
+				nil,          // arguments
+			)
+			if err != nil {
+				return err
+			}
+
 			return nil
 		},
 	)
@@ -162,7 +187,7 @@ func (s *Subscriber) Subscribe() (chan amqp.Delivery, error) {
 		return nil, err
 	}
 
-	return nil, nil
+	return deliveries, nil
 }
 
 // Shutdown the Subscriber
@@ -175,7 +200,14 @@ func (s *Subscriber) Shutdown() error {
 		return nil
 	}
 
-	err := s.deleteQueue()
+	var err error
+
+	err = s.cancelConsumer()
+	if err != nil {
+		return err
+	}
+
+	err = s.deleteQueue()
 	if err != nil {
 		return err
 	}
@@ -197,6 +229,5 @@ func NewSubscriber(config AMQPConfig, topics []string) *Subscriber {
 		tag:        config.Tag,
 		connection: nil,
 		channel:    nil,
-		deliveries: make(chan amqp.Delivery),
 	}
 }
