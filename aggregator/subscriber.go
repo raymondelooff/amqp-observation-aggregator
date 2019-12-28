@@ -128,6 +128,27 @@ func (s *Subscriber) deleteQueue() error {
 	return nil
 }
 
+// Consume the deliveries
+func (s *Subscriber) consume() (<-chan amqp.Delivery, error) {
+	deliveries, err := s.channel.Consume(
+		s.queue.Name, // queue
+		s.tag,        // consumer,
+		false,        // autoAck
+		false,        // exclusive
+		false,        // noLocal
+		false,        // noWait
+		nil,          // arguments
+	)
+
+	if err != nil {
+		log.Printf("Subscriber: %s", err)
+
+		return nil, fmt.Errorf("Subscriber: failed to consume")
+	}
+
+	return deliveries, nil
+}
+
 // Cancels the current consumer
 func (s *Subscriber) cancelConsumer() error {
 	err := s.channel.Cancel(s.tag, false)
@@ -167,15 +188,7 @@ func (s *Subscriber) Subscribe() (<-chan amqp.Delivery, error) {
 				return err
 			}
 
-			deliveries, err = s.channel.Consume(
-				s.queue.Name, // queue
-				s.tag,        // consumer,
-				false,        // autoAck
-				false,        // exclusive
-				false,        // noLocal
-				false,        // noWait
-				nil,          // arguments
-			)
+			deliveries, err = s.consume()
 			if err != nil {
 				return err
 			}
