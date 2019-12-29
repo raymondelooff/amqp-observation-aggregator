@@ -23,7 +23,7 @@ type Aggregator struct {
 
 // Run the Aggregator
 func (a *Aggregator) Run(wg *sync.WaitGroup) {
-	deliveries, err := a.subscriber.Subscribe()
+	observationUpdates, err := a.subscriber.Subscribe()
 	if err != nil {
 		log.Fatalf("aggregator: %s", err)
 	}
@@ -31,14 +31,21 @@ func (a *Aggregator) Run(wg *sync.WaitGroup) {
 	defer a.subscriber.Shutdown()
 
 	go func() {
-		for delivery := range deliveries {
-			wg.Add(1)
-			log.Println(delivery)
-			wg.Done()
+		for observationUpdate := range observationUpdates {
+			a.handleObservationUpdate(&observationUpdate, wg)
 		}
 	}()
 
 	wg.Wait()
+}
+
+// Handles the given message
+func (a *Aggregator) handleObservationUpdate(observationUpdate *ObservationUpdate, wg *sync.WaitGroup) {
+	wg.Add(1)
+
+	log.Println(observationUpdate)
+
+	wg.Done()
 }
 
 // NewAggregator creates a new Aggregator

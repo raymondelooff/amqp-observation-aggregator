@@ -3,6 +3,9 @@ package aggregator
 import (
 	"fmt"
 	"log"
+	"time"
+
+	"github.com/segmentio/encoding/json"
 
 	"github.com/avast/retry-go"
 	"github.com/streadway/amqp"
@@ -162,8 +165,53 @@ func (s *Subscriber) cancelConsumer() error {
 	return nil
 }
 
+// Parses the given ISO8601 time string into a Time
+func (s *Subscriber) parseTime(data string) (*time.Time, error) {
+	measuredAt, err := time.Parse(time.RFC3339, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &measuredAt, nil
+}
+
+// Handles the given AMQP Delivery
+func (s *Subscriber) handleDelivery(delivery *amqp.Delivery) (*ObservationUpdate, error) {
+	var data map[string]interface{}
+
+	if err := json.Unmarshal(delivery.Body, &data); err != nil {
+		return nil, fmt.Errorf("Subscriber: error unmarshalling delivery body")
+	}
+
+	value, ok := data["value"]
+	if !ok {
+		return nil, fmt.Errorf("Subscriber: key 'value' not found in map")
+	}
+	if value == nil {
+		return nil, fmt.Errorf("Subscriber: 'value' is nil")
+	}
+
+	timestamp, ok := data["timestamp"]
+	if !ok {
+		return nil, fmt.Errorf("Subscriber: key 'timestamp' not found in map")
+	}
+	if timestamp == nil {
+		return nil, fmt.Errorf("Subscriber: 'timestamp' is nil")
+	}
+
+	measuredAt, err := s.parseTime(timestamp.(string))
+	if err != nil {
+		return nil, fmt.Errorf("Subscriber: could not parse 'timestamp' time")
+	}
+
+	return &ObservationUpdate{
+		State:      value.(float64),
+		MeasuredAt: *measuredAt,
+	}, nil
+}
+
 // Subscribe to the topics defined in the AMQPConfig
-func (s *Subscriber) Subscribe() (<-chan amqp.Delivery, error) {
+func (s *Subscriber) Subscribe() (<-chan ObservationUpdate, error) {
 	var deliveries <-chan amqp.Delivery
 
 	err := s.dial()
@@ -200,7 +248,20 @@ func (s *Subscriber) Subscribe() (<-chan amqp.Delivery, error) {
 		return nil, err
 	}
 
-	return deliveries, nil
+	observationUpdates := make(chan ObservationUpdate)
+
+	go func() {
+		for delivery := range deliveries {
+			observationUpdate, err := s.handleDelivery(&delivery)
+			if err != nil {
+				continue
+			}
+
+			observationUpdates <- *observationUpdate
+		}
+	}()
+
+	return observationUpdates, nil
 }
 
 // Shutdown the Subscriber
