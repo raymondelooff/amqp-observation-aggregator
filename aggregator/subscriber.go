@@ -179,6 +179,13 @@ func (s *Subscriber) parseTime(data string) (*time.Time, error) {
 func (s *Subscriber) handleDelivery(delivery *amqp.Delivery) (*ObservationUpdate, error) {
 	var data map[string]interface{}
 
+	topic := NewTopic(delivery.RoutingKey)
+
+	stationID, err := topic.GetStationID()
+	if err != nil {
+		return nil, err
+	}
+
 	if err := json.Unmarshal(delivery.Body, &data); err != nil {
 		return nil, fmt.Errorf("Subscriber: error unmarshalling delivery body")
 	}
@@ -205,6 +212,7 @@ func (s *Subscriber) handleDelivery(delivery *amqp.Delivery) (*ObservationUpdate
 	}
 
 	return &ObservationUpdate{
+		StationID:  stationID,
 		State:      value.(float64),
 		MeasuredAt: *measuredAt,
 	}, nil
@@ -254,6 +262,8 @@ func (s *Subscriber) Subscribe() (<-chan ObservationUpdate, error) {
 		for delivery := range deliveries {
 			observationUpdate, err := s.handleDelivery(&delivery)
 			if err != nil {
+				log.Println(err)
+
 				continue
 			}
 
