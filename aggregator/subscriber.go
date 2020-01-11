@@ -2,13 +2,13 @@ package aggregator
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/segmentio/encoding/json"
 
 	"github.com/avast/retry-go"
 	"github.com/streadway/amqp"
+	"go.uber.org/zap"
 )
 
 // AMQPConfig represents the config of the Subscriber
@@ -27,6 +27,7 @@ type Subscriber struct {
 	connection *amqp.Connection
 	channel    *amqp.Channel
 	queue      *amqp.Queue
+	logger     *zap.SugaredLogger
 }
 
 // Connect with the configured AMQP broker
@@ -39,10 +40,10 @@ func (s *Subscriber) dial() error {
 		s.connection, err = amqp.Dial(s.config.DSN)
 	}
 	if err != nil {
-		return fmt.Errorf("Subscriber: %v", err)
+		return fmt.Errorf("subscriber: failed to dial server: %s", err)
 	}
 
-	log.Printf("Subscriber: connection established")
+	s.logger.Info("subscriber: connection established")
 
 	return nil
 }
@@ -53,12 +54,10 @@ func (s *Subscriber) getChannel() error {
 
 	s.channel, err = s.connection.Channel()
 	if err != nil {
-		log.Printf("Subscriber: %s", err)
-
-		return fmt.Errorf("Subscriber: failed to get Channel")
+		return fmt.Errorf("subscriber: failed to get channel: %s", err)
 	}
 
-	log.Printf("Subscriber: got Channel")
+	s.logger.Infof("subscriber: got Channel")
 
 	return nil
 }
@@ -69,7 +68,7 @@ func (s *Subscriber) declareQueue() (*amqp.Queue, error) {
 	var err error
 
 	queueName := fmt.Sprintf("amqp-observation-aggregator-%s", s.tag)
-	log.Printf("Subscriber: declaring Queue %v", queueName)
+	s.logger.Infof("subscriber: declaring Queue %v", queueName)
 
 	queue, err = s.channel.QueueDeclare(
 		queueName,
@@ -80,12 +79,10 @@ func (s *Subscriber) declareQueue() (*amqp.Queue, error) {
 		nil,   // arguments
 	)
 	if err != nil {
-		log.Printf("Subscriber: %s", err)
-
-		return nil, fmt.Errorf("Subscriber: failed to declare Queue")
+		return nil, fmt.Errorf("subscriber: failed to declare queue: %s", err)
 	}
 
-	log.Printf("Subscriber: declared Queue")
+	s.logger.Infof("subscriber: declared Queue")
 
 	return &queue, nil
 }
@@ -95,11 +92,11 @@ func (s *Subscriber) bindQueue() error {
 	var err error
 
 	if s.queue == nil {
-		return fmt.Errorf("Subscriber: Queue not declared")
+		return fmt.Errorf("subscriber: queue not declared")
 	}
 
 	for _, topic := range s.topics {
-		log.Printf("Subscriber: binding topic to Exchange (key: %q)", topic)
+		s.logger.Infof("subscriber: binding topic to Exchange (key: %q)", topic)
 
 		err = s.channel.QueueBind(
 			s.queue.Name,      // name
@@ -109,9 +106,7 @@ func (s *Subscriber) bindQueue() error {
 			nil,               // arguments
 		)
 		if err != nil {
-			log.Printf("Subscriber: %s", err)
-
-			return fmt.Errorf("Subscriber: failed to bind Queue")
+			return fmt.Errorf("subscriber: failed to bind Queue: %s", err)
 		}
 	}
 
@@ -123,9 +118,7 @@ func (s *Subscriber) deleteQueue() error {
 	_, err := s.channel.QueueDelete(s.queue.Name, true, false, false)
 
 	if err != nil {
-		log.Printf("Subscriber: %s", err)
-
-		return fmt.Errorf("Subscriber: failed to delete Queue")
+		return fmt.Errorf("subscriber: failed to delete Queue: %s", err)
 	}
 
 	return nil
@@ -144,9 +137,7 @@ func (s *Subscriber) consume() (<-chan amqp.Delivery, error) {
 	)
 
 	if err != nil {
-		log.Printf("Subscriber: %s", err)
-
-		return nil, fmt.Errorf("Subscriber: failed to consume")
+		return nil, fmt.Errorf("subscriber: failed to consume: %s", err)
 	}
 
 	return deliveries, nil
@@ -157,9 +148,7 @@ func (s *Subscriber) cancelConsumer() error {
 	err := s.channel.Cancel(s.tag, false)
 
 	if err != nil {
-		log.Printf("Subscriber: %s", err)
-
-		return fmt.Errorf("Subscriber: failed to cancel consumer")
+		return fmt.Errorf("subscriber: failed to cancel consumer: %s", err)
 	}
 
 	return nil
@@ -187,28 +176,28 @@ func (s *Subscriber) handleDelivery(delivery *amqp.Delivery) (*ObservationUpdate
 	}
 
 	if err := json.Unmarshal(delivery.Body, &data); err != nil {
-		return nil, fmt.Errorf("Subscriber: error unmarshalling delivery body")
+		return nil, fmt.Errorf("subscriber: error unmarshalling delivery body")
 	}
 
 	value, ok := data["value"]
 	if !ok {
-		return nil, fmt.Errorf("Subscriber: key 'value' not found in map")
+		return nil, fmt.Errorf("subscriber: key 'value' not found in map")
 	}
 	if value == nil {
-		return nil, fmt.Errorf("Subscriber: 'value' is nil")
+		return nil, fmt.Errorf("subscriber: 'value' is nil")
 	}
 
 	timestamp, ok := data["timestamp"]
 	if !ok {
-		return nil, fmt.Errorf("Subscriber: key 'timestamp' not found in map")
+		return nil, fmt.Errorf("subscriber: key 'timestamp' not found in map")
 	}
 	if timestamp == nil {
-		return nil, fmt.Errorf("Subscriber: 'timestamp' is nil")
+		return nil, fmt.Errorf("subscriber: 'timestamp' is nil")
 	}
 
 	measuredAt, err := s.parseTime(timestamp.(string))
 	if err != nil {
-		return nil, fmt.Errorf("Subscriber: could not parse 'timestamp' time")
+		return nil, fmt.Errorf("subscriber: could not parse 'timestamp' time")
 	}
 
 	return &ObservationUpdate{
@@ -262,7 +251,7 @@ func (s *Subscriber) Subscribe() (<-chan ObservationUpdate, error) {
 		for delivery := range deliveries {
 			observationUpdate, err := s.handleDelivery(&delivery)
 			if err != nil {
-				log.Println(err)
+				s.logger.Debugf("subscriber: skipping observation update: %s", err)
 
 				continue
 			}
@@ -276,10 +265,10 @@ func (s *Subscriber) Subscribe() (<-chan ObservationUpdate, error) {
 
 // Shutdown the Subscriber
 func (s *Subscriber) Shutdown() error {
-	log.Printf("Subscriber: shutting down")
+	s.logger.Info("subscriber: shutting down")
 
 	if s.connection == nil {
-		log.Printf("Subscriber: shutdown OK")
+		s.logger.Info("subscriber: shutdown OK")
 
 		return nil
 	}
@@ -297,21 +286,22 @@ func (s *Subscriber) Shutdown() error {
 	}
 
 	if err := s.connection.Close(); err != nil {
-		return fmt.Errorf("AMQP connection close error: %s", err)
+		return fmt.Errorf("subscriber: AMQP connection close error: %s", err)
 	}
 
-	log.Printf("Subscriber: shutdown OK")
+	s.logger.Info("subscriber: shutdown OK")
 
 	return nil
 }
 
 // NewSubscriber creates a new Subscriber
-func NewSubscriber(config AMQPConfig, topics []string) *Subscriber {
+func NewSubscriber(config AMQPConfig, topics []string, logger *zap.SugaredLogger) *Subscriber {
 	return &Subscriber{
 		config:     config,
 		topics:     topics,
 		tag:        config.Tag,
 		connection: nil,
 		channel:    nil,
+		logger:     logger,
 	}
 }

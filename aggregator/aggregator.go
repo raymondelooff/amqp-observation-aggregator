@@ -2,16 +2,19 @@ package aggregator
 
 import (
 	"database/sql"
-	"log"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Config is the main configuration
 type Config struct {
-	AMQP   AMQPConfig   `yaml:"amqp"`
-	MySQL  MySQLConfig  `yaml:"mysql"`
-	Writer WriterConfig `yaml:"writer"`
-	Topics []string     `yaml:"topics"`
+	Env       string       `yaml:"env"`
+	SentryDsn string       `yaml:"sentry_dsn"`
+	AMQP      AMQPConfig   `yaml:"amqp"`
+	MySQL     MySQLConfig  `yaml:"mysql"`
+	Writer    WriterConfig `yaml:"writer"`
+	Topics    []string     `yaml:"topics"`
 }
 
 // Aggregator uses a Subscriber and Writer to aggregate observations
@@ -19,13 +22,14 @@ type Aggregator struct {
 	config     Config
 	subscriber *Subscriber
 	writer     *Writer
+	logger     *zap.SugaredLogger
 }
 
 // Run the Aggregator
 func (a *Aggregator) Run(wg *sync.WaitGroup) {
 	observationUpdates, err := a.subscriber.Subscribe()
 	if err != nil {
-		log.Fatalf("aggregator: %s", err)
+		a.logger.Fatalf("aggregator: %s", err)
 	}
 
 	defer a.subscriber.Shutdown()
@@ -49,10 +53,11 @@ func (a *Aggregator) handleObservationUpdate(observationUpdate *ObservationUpdat
 }
 
 // NewAggregator creates a new Aggregator
-func NewAggregator(config Config, db *sql.DB) *Aggregator {
+func NewAggregator(config Config, db *sql.DB, logger *zap.SugaredLogger) *Aggregator {
 	return &Aggregator{
 		config:     config,
-		subscriber: NewSubscriber(config.AMQP, config.Topics),
-		writer:     NewWriter(config.Writer, db),
+		subscriber: NewSubscriber(config.AMQP, config.Topics, logger),
+		writer:     NewWriter(config.Writer, db, logger),
+		logger:     logger,
 	}
 }

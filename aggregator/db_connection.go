@@ -16,7 +16,7 @@ type MySQLConfig struct {
 func NewDbConnection(config MySQLConfig) (*sql.DB, error) {
 	db, err := sql.Open("mysql", config.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("database connection error: %s", err)
+		return nil, fmt.Errorf("db_connection: database connection error: %s", err)
 	}
 
 	return db, nil

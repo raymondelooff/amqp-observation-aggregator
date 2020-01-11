@@ -2,6 +2,9 @@ package aggregator
 
 import (
 	"database/sql"
+	"fmt"
+
+	"go.uber.org/zap"
 )
 
 // WriterConfig represents the config of the Writer
@@ -13,6 +16,7 @@ type Writer struct {
 	config WriterConfig
 	db     *sql.DB
 	stmt   *sql.Stmt
+	logger *zap.SugaredLogger
 }
 
 func (w *Writer) prepareStmt() (*sql.Stmt, error) {
@@ -50,9 +54,10 @@ func (w *Writer) Write(observationUpdate *ObservationUpdate) error {
 }
 
 // NewWriter creates a new Writer
-func NewWriter(config WriterConfig, db *sql.DB) *Writer {
+func NewWriter(config WriterConfig, db *sql.DB, logger *zap.SugaredLogger) *Writer {
 	return &Writer{
 		config: config,
 		db:     db,
+		logger: logger,
 	}
 }

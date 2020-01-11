@@ -17,11 +17,11 @@ func (t *Topic) GetStationID() (string, error) {
 	matches := t.stationRegex.FindStringSubmatch(t.Value)
 
 	if matches == nil {
-		return "", fmt.Errorf("Topic: '%s' does not match topic regex", t.Value)
+		return "", fmt.Errorf("topic: '%s' does not match topic regex", t.Value)
 	}
 
 	if len(matches) < 2 {
-		return "", fmt.Errorf("Topic: StationID not found in topic")
+		return "", fmt.Errorf("topic: StationID not found in topic")
 	}
 
 	return matches[1], nil

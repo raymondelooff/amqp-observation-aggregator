@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/raymondelooff/amqp-observation-aggregator/aggregator"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
 )
 
@@ -33,7 +34,21 @@ func main() {
 		log.Fatalf("error: %v", err)
 	}
 
-	a := aggregator.NewAggregator(c, db)
+	// Set up logger
+	var logger *zap.Logger
+	if c.Env == "dev" {
+		logger, err = zap.NewDevelopment()
+	} else {
+		logger, err = zap.NewProduction()
+	}
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	defer logger.Sync()
+	sugar := logger.Sugar()
+
+	// Set up aggregator
+	a := aggregator.NewAggregator(c, db, sugar)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -44,10 +59,10 @@ func main() {
 
 		<-exit
 
-		log.Println("Aggregator: shutting down")
+		sugar.Info("aggregator: shutting down")
 		wg.Done()
 	}()
 
 	a.Run(&wg)
-	log.Println("Aggregator: shutdown OK")
+	sugar.Info("aggregator: shutdown OK")
 }
