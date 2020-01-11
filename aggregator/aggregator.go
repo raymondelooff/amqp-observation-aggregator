@@ -43,7 +43,7 @@ func (a *Aggregator) Run(wg *sync.WaitGroup) {
 func (a *Aggregator) handleObservationUpdate(observationUpdate *ObservationUpdate, wg *sync.WaitGroup) {
 	wg.Add(1)
 
-	log.Println(observationUpdate)
+	a.writer.Write(observationUpdate)
 
 	wg.Done()
 }
